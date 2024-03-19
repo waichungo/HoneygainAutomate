@@ -62,8 +62,9 @@ namespace UiAutomate
                   }).FirstOrDefault();
                 if (proc != null)
                 {
-                    while(!proc.HasExited) {
-                    Thread.Sleep(1000);
+                    while (!proc.HasExited)
+                    {
+                        Thread.Sleep(1000);
                     }
                 }
 
