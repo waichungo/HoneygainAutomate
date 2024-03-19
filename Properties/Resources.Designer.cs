@@ -63,6 +63,16 @@ namespace HoneygainAutomate.Properties {
         /// <summary>
         ///   Looks up a localized resource of type System.Byte[].
         /// </summary>
+        internal static byte[] dummywin {
+            get {
+                object obj = ResourceManager.GetObject("dummywin", resourceCulture);
+                return ((byte[])(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized resource of type System.Byte[].
+        /// </summary>
         internal static byte[] Honeygain {
             get {
                 object obj = ResourceManager.GetObject("Honeygain", resourceCulture);
