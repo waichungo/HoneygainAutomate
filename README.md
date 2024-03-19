@@ -1,2 +1,2 @@
 # HoneygainAutomate
-Application to automate  honeygain automation
+Application to automate  honeygain
