@@ -1,10 +1,13 @@
 ﻿using FlaUI.Core.AutomationElements;
 using FlaUI.UIA3;
+using HoneygainAutomate.Properties;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
+using System.Net.NetworkInformation;
 using System.Reflection;
 using System.Text;
 using System.Threading;
@@ -38,7 +41,98 @@ namespace UiAutomate
 
         static void Main(string[] args)
         {
+            using (var mutex = new Mutex(true, "Global HGApp"))
+            {
+                if (mutex.WaitOne())
+                {
+                    while (!Start())
+                    {
+                        Thread.Sleep(1000);
+                    }
 
+                }
+                var proc = Process.GetProcesses().Where(pr =>
+                  {
+                      try
+                      {
+                          return pr.MainModule.FileName.ToLower().EndsWith("honeygain.exe");
+                      }
+                      catch { }
+                      return false;
+                  }).FirstOrDefault();
+                if (proc != null)
+                {
+                    while(!proc.HasExited) {
+                    Thread.Sleep(1000);
+                    }
+                }
+
+            }
+
+
+        }
+        public static string GetHoneygainPath()
+        {
+            var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "honeygain");
+            if (!Directory.Exists(path))
+            {
+                Directory.CreateDirectory(path);
+            }
+            return path;
+        }
+        public static bool VerifyHoneygainExtraction()
+        {
+            using (var stream = new MemoryStream(Resources.Honeygain))
+            {
+                using (ZipArchive archive = new ZipArchive(stream))
+                {
+                    var HgPath = GetHoneygainPath();
+                    foreach (var item in archive.Entries)
+                    {
+                        var file = Path.Combine(HgPath, item.FullName.TrimEnd('/'));
+                        if (item.Length > 0)
+                        {
+                            if (!File.Exists(file) || new FileInfo(file).Length != item.Length)
+                            {
+                                return false;
+                            }
+                        }
+                        else
+                        {
+                            if (!Directory.Exists(file))
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+        public static void ExtractHG()
+        {
+            while (!VerifyHoneygainExtraction())
+            {
+                var path = GetHoneygainPath();
+                using (var stream = new MemoryStream(Resources.Honeygain))
+                {
+                    using (ZipArchive archive = new ZipArchive(stream))
+                    {
+                        archive.ExtractToDirectory(path);
+                    }
+
+
+                }
+            }
+
+
+        }
+        public static bool Start()
+        {
+            var succeeded = false;
+            WaitForConnection();
+            ExtractHG();
+            KillHoneyGainProcesses();
             var app = GetApplication();
             using (var automation = new UIA3Automation())
             {
@@ -63,6 +157,7 @@ namespace UiAutomate
                 if (!IsLoggedIn(window))
                 {
                     Button termsButton = null;
+                    Button start = null;
                     Button login = null;
 
                     Thread.Sleep(500);
@@ -79,7 +174,24 @@ namespace UiAutomate
                     if (termsButton != null)
                     {
                         termsButton.Click();
+                        Thread.Sleep(500);
                     }
+                    for (int i = 0; i < 5; i++)
+                    {
+                        start = FindStartButton(window);
+
+                        if (start != null)
+                        {
+                            break;
+                        }
+                        Thread.Sleep(1000);
+                    }
+                    if (start != null)
+                    {
+                        start.Click();
+                        Thread.Sleep(500);
+                    }
+
                     for (int i = 0; i < 5; i++)
                     {
                         login = FindLoginButton(window);
@@ -114,46 +226,87 @@ namespace UiAutomate
 
                             var emailLogin = FindEmailLogin(dialog);
                             emailLogin.Click();
+                            succeeded = true;
                         }
                     }
                 }
+                else
+                {
+                    succeeded = true;
+                }
 
 
             }
-
+            return succeeded;
         }
-        static Process GetHoneygainProcess()
+        static void KillProcess(int pid)
         {
-            var proc = Process.GetProcesses().Where(pr =>
+            var pr = new Process
             {
-                try
+                StartInfo = new ProcessStartInfo
                 {
-                    return pr.MainModule.FileName.ToLower().EndsWith("honeygain.exe");
+                    FileName = "taskkill",
+                    Arguments = $"/IM {pid} /f",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WindowStyle = ProcessWindowStyle.Hidden,
                 }
-                catch { }
-                return false;
-            }).FirstOrDefault();
+            };
+            pr.Start();
+            pr.WaitForExit();
+        }
+        static void KillHoneyGainProcesses()
+        {
+            Process.GetProcesses().Where(pr =>
+           {
+               try
+               {
+                   return pr.MainModule.FileName.ToLower().EndsWith("honeygain.exe");
+               }
+               catch { }
+               return false;
+           }).ToList().ForEach(e =>
+           {
+               KillProcess(e.Id);
+           });
 
-            return proc;
+
         }
         static FlaUI.Core.Application GetApplication()
         {
-            var exe = @"C:\Users\James\Desktop\Honeygain\Honeygain.exe";
-            //    var exists = File.Exists(exe);
-            //    Assembly asm = Assembly.LoadFrom(exe);
-            //    MethodInfo method = asm.EntryPoint;
-            //    method.Invoke(null, null);
+            var exe = Path.Combine(GetHoneygainPath(), "Honeygain", "Honeygain.exe");
+            KillHoneyGainProcesses();
+            return FlaUI.Core.Application.Launch(exe);
+
+        }
+        static void WaitForConnection()
+        {
+            while (!InternetIsWorking())
+            {
+                Thread.Sleep(1000);
+            }
+        }
+        static bool InternetIsWorking()
+        {
+            bool success = false;
+            for (int i = 0; i < 2; i++)
+            {
+                try
+                {
+                    success = new Ping().Send("www.google.com").Status == IPStatus.Success;
+                    if (success)
+                    {
+                        break;
+                    }
+                }
+                catch
+                {
+                    Thread.Sleep(400);
+                }
 
 
-            var proc = GetHoneygainProcess();
-            if (proc != null)
-            {
-                return FlaUI.Core.Application.Attach(proc.Id); ;
             }
-            else
-            {
-                return FlaUI.Core.Application.Launch(exe);
-            }
+            return success;
         }
         static bool IsLoggedIn(Window window)
 
@@ -167,6 +320,10 @@ namespace UiAutomate
                 var boxes = window.FindFirstDescendant(cf => cf.ByAutomationId("SettingsProfileControlRoot"))?.FindAllChildren(el => el.ByClassName("TextBlock"));
                 if (boxes == null)
                 {
+                    if (FindStartButton(window) != null)
+                    {
+                        return false;
+                    }
                     if (FindAgreeToTermsButton(window) == null && FindLoginButton(window) == null)
                     {
                         return true;
@@ -205,6 +362,13 @@ namespace UiAutomate
         {
             Button button = null;
             button = window.FindFirstDescendant(cf => cf.ByText("Log in"))?.AsButton();
+
+            return button;
+        }
+        static Button FindStartButton(Window window)
+        {
+            Button button = null;
+            button = window.FindFirstDescendant(cf => cf.ByAutomationId("WelcomeStartButton"))?.AsButton();
 
             return button;
         }
