@@ -1,0 +1,8 @@
+/bin/
+/vs/
+/obj/
+/.vscode/
+/packages/
+*.exe
+*.dll
+*.zip
