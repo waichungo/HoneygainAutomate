@@ -37,6 +37,8 @@ namespace UiAutomate
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         public static extern int GetSystemMetrics(int nIndex);
         [DllImport("user32.dll")]
+        public static extern int ShowWindow(IntPtr hwnd, int cmdShow);
+        [DllImport("user32.dll")]
         public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
         [DllImport("user32.dll")]
         public static extern int SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
@@ -46,13 +48,13 @@ namespace UiAutomate
         [DllImport("Kernel32.dll")]
         private static extern uint GetLastError();
 
-        public static uint GetIdleTime()
+        public static int GetIdleTime()
         {
             LASTINPUTINFO lastInPut = new LASTINPUTINFO();
             lastInPut.cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf(lastInPut);
             GetLastInputInfo(ref lastInPut);
 
-            return ((uint)Environment.TickCount - lastInPut.dwTime);
+            return (int)((Environment.TickCount - lastInPut.dwTime)/1000);
         }
         static Rect GetScreenRect()
         {
@@ -231,7 +233,7 @@ namespace UiAutomate
                     FileName = Path.Combine(GetDummyWinPath(), "dummywin.exe"),
                     UseShellExecute = false,
                     CreateNoWindow = true,
-                    WindowStyle = ProcessWindowStyle.Hidden,                    
+                    WindowStyle = ProcessWindowStyle.Hidden,
                 }
             };
             pr.Start();
@@ -246,9 +248,15 @@ namespace UiAutomate
             KillHoneyGainProcesses();
             ExtractDummyWin();
             ExtractHG();
+            long idle = 0;
+            while ((idle = GetIdleTime()) < 120)
+            {
+                Thread.Sleep(2000);
+            }
             var dummyWin = LaunchDummyWin();
             var rect = GetScreenRect();
-            SetWindowPos(dummyWin.MainWindowHandle, IntPtr.Zero, rect.width + 100, rect.height + 100, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
+            SetWindowPos(dummyWin.MainWindowHandle, IntPtr.Zero, -(rect.width + 100), -(rect.height + 100), 0, 0, SWP_NOZORDER | SWP_NOSIZE);
+            ShowWindow(dummyWin.MainWindowHandle, 0);
             var app = GetApplication();
             bool running = true;
 
@@ -257,7 +265,7 @@ namespace UiAutomate
             using (var automation = new UIA3Automation())
             {
                 var window = app.GetMainWindow(automation);
-                
+
                 th = new Thread(() =>
                {
                    while (running)
@@ -265,6 +273,7 @@ namespace UiAutomate
                        Thread.Sleep(200);
                        Console.WriteLine(GetLastInput());
                        SetWindowPos(dummyWin.MainWindowHandle, IntPtr.Zero, rect.width + 100, rect.height + 100, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
+                     
                        //SetWindowPos(app.MainWindowHandle, IntPtr.Zero, rect.width + 100, rect.height + 100, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
                        //foreach(var dialog in window.ModalWindows)
                        //    {
@@ -274,7 +283,7 @@ namespace UiAutomate
 
                });
                 th.Start();
-               
+
                 if (rect.width > 0)
                 {
                     //SetWindowPos(app.MainWindowHandle, IntPtr.Zero, rect.width+100, rect.height+100, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
@@ -369,6 +378,7 @@ namespace UiAutomate
                 if (succeeded)
                 {
                     SetParent(app.MainWindowHandle, dummyWin.MainWindowHandle);
+                    
                 }
 
             }
