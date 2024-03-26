@@ -2,19 +2,15 @@
 using FlaUI.UIA3;
 using HoneygainAutomate.Properties;
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net.NetworkInformation;
-using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
-using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
-using static UiAutomate.NativeMethods;
+
+using FlaUI.Core;
 
 namespace UiAutomate
 {
@@ -34,7 +30,7 @@ namespace UiAutomate
     {
         const uint SWP_NOSIZE = 0x0001;
         const uint SWP_NOZORDER = 0x0004;
-        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        [DllImport("user32.dll")]
         public static extern int GetSystemMetrics(int nIndex);
         [DllImport("user32.dll")]
         public static extern int ShowWindow(IntPtr hwnd, int cmdShow);
@@ -93,10 +89,7 @@ namespace UiAutomate
                   }).FirstOrDefault();
                 if (proc != null)
                 {
-                    while (!proc.HasExited)
-                    {
-                        Thread.Sleep(1000);
-                    }
+                    proc.WaitForExit();
                 }
 
             }
@@ -202,12 +195,8 @@ namespace UiAutomate
                     {
                         archive.ExtractToDirectory(path);
                     }
-
-
                 }
             }
-
-
         }
         public static void ExtractDummyWin()
         {
@@ -234,10 +223,10 @@ namespace UiAutomate
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     WindowStyle = ProcessWindowStyle.Hidden,
+
                 }
             };
             pr.Start();
-            //pr.WaitForExit();
             return pr;
         }
         public static bool Start()
@@ -255,25 +244,25 @@ namespace UiAutomate
                 Thread.Sleep(2000);
             }
             var rect = GetScreenRect();
-            var dummyWin = LaunchDummyWin();
-            //SetWindowPos(dummyWin.MainWindowHandle, IntPtr.Zero, -(rect.width + 100), -(rect.height + 100), 0, 0, SWP_NOZORDER | SWP_NOSIZE);
-            ShowWindow(dummyWin.MainWindowHandle, 0);
+            Process dummyWin = null;
             var app = GetApplication();
             bool running = true;
 
             Thread th = null;
-
             using (var automation = new UIA3Automation())
             {
                 var window = app.GetMainWindow(automation);
-
                 th = new Thread(() =>
                {
                    while (running)
                    {
                        Thread.Sleep(1000);
                        //Console.WriteLine(GetLastInput());
-                       SetWindowPos(dummyWin.MainWindowHandle, IntPtr.Zero, rect.width + 100, rect.height + 100, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
+                       if (dummyWin != null)
+                       {
+                           SetWindowPos(dummyWin.MainWindowHandle, IntPtr.Zero, rect.width + 100, rect.height + 100, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
+                           ShowWindow(dummyWin.MainWindowHandle, 0);
+                       }
                    }
 
                });
@@ -284,17 +273,15 @@ namespace UiAutomate
                     loadCounter++;
                     Thread.Sleep(1000);
                 }
-                if (!IsLoggedIn(window))
+                if (!IsLoggedIn(window, automation))
                 {
                     Button termsButton = null;
                     Button start = null;
                     Button login = null;
-
                     Thread.Sleep(500);
                     for (int i = 0; i < 5; i++)
                     {
                         termsButton = FindAgreeToTermsButton(window);
-
                         if (termsButton != null)
                         {
                             break;
@@ -325,7 +312,6 @@ namespace UiAutomate
                     for (int i = 0; i < 5; i++)
                     {
                         login = FindLoginButton(window);
-
                         if (login != null)
                         {
                             break;
@@ -340,10 +326,8 @@ namespace UiAutomate
                         if (dialogs != null && dialogs.Length > 0)
                         {
                             var dialog = dialogs[0];
-
                             var userField = FindUsernameInput(dialog);
                             var passField = FindPasswordInput(dialog);
-
 
                             if (userField != null)
                             {
@@ -353,7 +337,6 @@ namespace UiAutomate
                             {
                                 passField.Enter("8512James");
                             }
-
                             var emailLogin = FindEmailLogin(dialog);
                             emailLogin.Click();
                             succeeded = true;
@@ -363,16 +346,20 @@ namespace UiAutomate
                 else
                 {
                     succeeded = true;
-                    SetParent(app.MainWindowHandle, dummyWin.MainWindowHandle);
                 }
                 running = false;
                 th.Join();
                 if (succeeded)
                 {
+                    dummyWin = LaunchDummyWin();
+                    SetWindowPos(dummyWin.MainWindowHandle, IntPtr.Zero, rect.width + 100, rect.height + 100, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
+                    ShowWindow(dummyWin.MainWindowHandle, 0);
                     SetParent(app.MainWindowHandle, dummyWin.MainWindowHandle);
-
                 }
-
+                else
+                {
+                    KillProcess(dummyWin.Id);
+                }
             }
             return succeeded;
         }
@@ -406,8 +393,6 @@ namespace UiAutomate
            {
                KillProcess(e.Id);
            });
-
-
         }
         static void KillDummyWinProcesses()
         {
@@ -423,15 +408,12 @@ namespace UiAutomate
            {
                KillProcess(e.Id);
            });
-
-
         }
-        static FlaUI.Core.Application GetApplication()
+        static Application GetApplication()
         {
             var exe = Path.Combine(GetHoneygainPath(), "Honeygain", "Honeygain.exe");
             KillHoneyGainProcesses();
-            return FlaUI.Core.Application.Launch(exe);
-
+            return Application.Launch(exe);
         }
         static void WaitForConnection()
         {
@@ -457,28 +439,33 @@ namespace UiAutomate
                 {
                     Thread.Sleep(400);
                 }
-
-
             }
             return success;
         }
-        static bool IsLoggedIn(Window window)
-
+        static bool IsLoggedIn(Window window, UIA3Automation automation = null)
         {
             var result = false;
+            if (automation != null)
+            {
+                var passButton = window.FindFirstDescendant(cf => cf.ByName("Change password"))?.AsButton();
+                if (passButton != null)
+                {
+                    var walker = automation.TreeWalkerFactory.GetControlViewWalker();
+                    var emailLabel = walker.GetPreviousSibling(passButton)?.AsLabel();
+                    if (emailLabel != null && emailLabel.Text.Contains("@"))
+                    {
+                        return true;
+                    }
+                }
+            }
             AutomationElement box = null;
             var count = 0;
             do
             {
-                //box = window.FindFirstDescendant(cf => cf.ByAutomationId("SettingsProfileControlRoot"))?.FindFirstDescendant(cf => cf.ByAutomationId("AvatarElementRoot"))?.FindAllDescendants(el=>el.ByClassName("TextBlock") ).Where(bx=>bx.AsLabel().Text.Contains("@"))?.FirstOrDefault();
                 var boxes = window.FindFirstDescendant(cf => cf.ByAutomationId("SettingsProfileControlRoot"))?.FindAllChildren(el => el.ByClassName("TextBlock"));
                 if (boxes == null)
                 {
-                    if (FindStartButton(window) != null)
-                    {
-                        return false;
-                    }
-                    if (FindAgreeToTermsButton(window) == null && FindLoginButton(window) == null)
+                    if (FindAgreeToTermsButton(window) == null && FindLoginButton(window) == null && FindStartButton(window) == null)
                     {
                         return true;
                     }
@@ -509,50 +496,42 @@ namespace UiAutomate
         {
             Button button = null;
             button = window.FindFirstDescendant(cf => cf.ByText("Agree to Terms of Use"))?.AsButton();
-
             return button;
         }
         static Button FindLoginButton(Window window)
         {
             Button button = null;
             button = window.FindFirstDescendant(cf => cf.ByText("Log in"))?.AsButton();
-
             return button;
         }
         static Button FindStartButton(Window window)
         {
             Button button = null;
             button = window.FindFirstDescendant(cf => cf.ByAutomationId("WelcomeStartButton"))?.AsButton();
-
             return button;
         }
         static TextBox FindUsernameInput(Window window)
         {
             TextBox box = null;
             box = window.FindFirstDescendant(cf => cf.ByAutomationId("Input"))?.AsTextBox();
-
             return box;
         }
         static bool IsWindowLoading(Window window)
         {
-
             var control = window.FindFirstDescendant(cf => cf.ByText("Loading..."));
             bool loading = !(control == null || control.BoundingRectangle.Width == 0);
-
             return loading;
         }
         static TextBox FindPasswordInput(Window window)
         {
             TextBox box = null;
             box = window.FindFirstDescendant(cf => cf.ByAutomationId("PasswordInput"))?.FindFirstDescendant(el => el.ByAutomationId("PasswordInput"))?.AsTextBox();
-
             return box;
         }
         static Button FindEmailLogin(Window window)
         {
             Button button = null;
             button = window.FindFirstDescendant(cf => cf.ByAutomationId("PrimaryButtonRoot"))?.FindFirstDescendant(el => el.ByControlType(FlaUI.Core.Definitions.ControlType.Button))?.AsButton();
-
             return button;
         }
     }
