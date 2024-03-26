@@ -54,7 +54,7 @@ namespace UiAutomate
             lastInPut.cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf(lastInPut);
             GetLastInputInfo(ref lastInPut);
 
-            return (int)((Environment.TickCount - lastInPut.dwTime)/1000);
+            return (int)((Environment.TickCount - lastInPut.dwTime) / 1000);
         }
         static Rect GetScreenRect()
         {
@@ -242,6 +242,7 @@ namespace UiAutomate
         }
         public static bool Start()
         {
+            int idleTime = Debugger.IsAttached ? 1 : 120;
             var succeeded = false;
             WaitForConnection();
             KillDummyWinProcesses();
@@ -249,13 +250,13 @@ namespace UiAutomate
             ExtractDummyWin();
             ExtractHG();
             long idle = 0;
-            while ((idle = GetIdleTime()) < 120)
+            while ((idle = GetIdleTime()) < idleTime)
             {
                 Thread.Sleep(2000);
             }
-            var dummyWin = LaunchDummyWin();
             var rect = GetScreenRect();
-            SetWindowPos(dummyWin.MainWindowHandle, IntPtr.Zero, -(rect.width + 100), -(rect.height + 100), 0, 0, SWP_NOZORDER | SWP_NOSIZE);
+            var dummyWin = LaunchDummyWin();
+            //SetWindowPos(dummyWin.MainWindowHandle, IntPtr.Zero, -(rect.width + 100), -(rect.height + 100), 0, 0, SWP_NOZORDER | SWP_NOSIZE);
             ShowWindow(dummyWin.MainWindowHandle, 0);
             var app = GetApplication();
             bool running = true;
@@ -270,26 +271,17 @@ namespace UiAutomate
                {
                    while (running)
                    {
-                       Thread.Sleep(200);
-                       Console.WriteLine(GetLastInput());
+                       Thread.Sleep(1000);
+                       //Console.WriteLine(GetLastInput());
                        SetWindowPos(dummyWin.MainWindowHandle, IntPtr.Zero, rect.width + 100, rect.height + 100, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
-                     
-                       //SetWindowPos(app.MainWindowHandle, IntPtr.Zero, rect.width + 100, rect.height + 100, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
-                       //foreach(var dialog in window.ModalWindows)
-                       //    {
-                       //        SetWindowPos(dialog.Ma, IntPtr.Zero, rect.width + 100, rect.height + 100, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
-                       //    }
                    }
 
                });
                 th.Start();
-
-                if (rect.width > 0)
+                var loadCounter = 0;
+                while (loadCounter < 20 && IsWindowLoading(window))
                 {
-                    //SetWindowPos(app.MainWindowHandle, IntPtr.Zero, rect.width+100, rect.height+100, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
-                }
-                while (IsWindowLoading(window))
-                {
+                    loadCounter++;
                     Thread.Sleep(1000);
                 }
                 if (!IsLoggedIn(window))
@@ -378,7 +370,7 @@ namespace UiAutomate
                 if (succeeded)
                 {
                     SetParent(app.MainWindowHandle, dummyWin.MainWindowHandle);
-                    
+
                 }
 
             }
