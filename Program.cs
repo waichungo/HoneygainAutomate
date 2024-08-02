@@ -1,16 +1,13 @@
 ﻿using FlaUI.Core.AutomationElements;
 using FlaUI.UIA3;
 using HoneygainAutomate.Properties;
-using System;
 using System.Diagnostics;
-using System.IO;
 using System.IO.Compression;
-using System.Linq;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
-using System.Threading;
-
-using FlaUI.Core;
+using Button = FlaUI.Core.AutomationElements.Button;
+using Application = FlaUI.Core.Application;
+using TextBox = FlaUI.Core.AutomationElements.TextBox;
 
 namespace UiAutomate
 {
@@ -100,7 +97,7 @@ namespace UiAutomate
         {
             long res = 0L;
             LASTINPUTINFO lastInPut = new LASTINPUTINFO();
-            lastInPut.cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf(lastInPut);
+            lastInPut.cbSize = (uint)Marshal.SizeOf(lastInPut);
             if (GetLastInputInfo(ref lastInPut))
             {
                 res = (Environment.TickCount - lastInPut.dwTime) / 1000;
@@ -221,8 +218,8 @@ namespace UiAutomate
                 {
                     FileName = Path.Combine(GetDummyWinPath(), "dummywin.exe"),
                     UseShellExecute = false,
-                    CreateNoWindow = true,
-                    WindowStyle = ProcessWindowStyle.Hidden,
+                    CreateNoWindow = false,
+                    WindowStyle = ProcessWindowStyle.Normal,
 
                 }
             };
@@ -231,7 +228,9 @@ namespace UiAutomate
         }
         public static bool Start()
         {
-            int idleTime = Debugger.IsAttached ? 1 : 120;
+            var args = Environment.GetCommandLineArgs();
+            bool skipIdle = args.Select(e => e.ToLower().Trim()).Contains("run");
+            int idleTime = Debugger.IsAttached || skipIdle ? 0 : 120;
             var succeeded = false;
             WaitForConnection();
             KillDummyWinProcesses();
@@ -252,6 +251,8 @@ namespace UiAutomate
             using (var automation = new UIA3Automation())
             {
                 var window = app.GetMainWindow(automation);
+                window.WaitUntilClickable();
+                window.SetForeground();
                 th = new Thread(() =>
                {
                    while (running)
@@ -275,9 +276,9 @@ namespace UiAutomate
                 }
                 if (!IsLoggedIn(window, automation))
                 {
-                    Button termsButton = null;
-                    Button start = null;
-                    Button login = null;
+                    Button? termsButton = null;
+                    Button? start = null;
+                    Button? login = null;
                     Thread.Sleep(500);
                     for (int i = 0; i < 5; i++)
                     {
@@ -290,7 +291,8 @@ namespace UiAutomate
                     }
                     if (termsButton != null)
                     {
-                        termsButton.Click();
+                        window.SetForeground();
+                        termsButton?.Click();
                         Thread.Sleep(500);
                     }
                     for (int i = 0; i < 5; i++)
@@ -305,8 +307,13 @@ namespace UiAutomate
                     }
                     if (start != null)
                     {
-                        start.Click();
-                        Thread.Sleep(500);
+                        do
+                        {
+                            window?.SetForeground();
+                            start?.Click();
+                            Thread.Sleep(500);
+                        } while ((start = FindStartButton(window)) != null);
+
                     }
 
                     for (int i = 0; i < 5; i++)
@@ -320,7 +327,10 @@ namespace UiAutomate
                     }
                     if (login != null)
                     {
-                        login.Click();
+
+                        window?.SetForeground();
+                        login?.Click();
+
                         Thread.Sleep(1000);
                         var dialogs = window.ModalWindows;
                         if (dialogs != null && dialogs.Length > 0)
@@ -338,6 +348,8 @@ namespace UiAutomate
                                 passField.Enter("8512James");
                             }
                             var emailLogin = FindEmailLogin(dialog);
+                            window.SetForeground();
+
                             emailLogin.Click();
                             succeeded = true;
                         }
@@ -352,13 +364,29 @@ namespace UiAutomate
                 if (succeeded)
                 {
                     dummyWin = LaunchDummyWin();
+                    bool IsParentSet = false;
+                    var counts = 0;
+                    do
+                    {
+                        window.SetForeground();
+                        app.GetMainWindow(automation).Focus();
+                        IsParentSet = SetParent(app.MainWindowHandle, dummyWin.MainWindowHandle) != 0;
+                        if (!IsParentSet)
+                        {
+                            Thread.Sleep(200);
+                        }
+                        counts++;
+                    } while (!IsParentSet && counts < 10);
+
                     SetWindowPos(dummyWin.MainWindowHandle, IntPtr.Zero, rect.width + 100, rect.height + 100, 0, 0, SWP_NOZORDER | SWP_NOSIZE);
                     ShowWindow(dummyWin.MainWindowHandle, 0);
-                    SetParent(app.MainWindowHandle, dummyWin.MainWindowHandle);
                 }
                 else
                 {
-                    KillProcess(dummyWin.Id);
+                    if (dummyWin != null && !dummyWin.HasExited)
+                    {
+                        KillProcess(dummyWin.Id);
+                    }
                 }
             }
             return succeeded;
@@ -442,7 +470,7 @@ namespace UiAutomate
             }
             return success;
         }
-        static bool IsLoggedIn(Window window, UIA3Automation automation = null)
+        static bool IsLoggedIn(Window window, UIA3Automation? automation = null)
         {
             var result = false;
             if (automation != null)
